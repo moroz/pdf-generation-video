@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,14 +12,12 @@ import (
 
 var PDFTemplate = template.Must(template.ParseFiles("main.tmpl.tex"))
 
+const listenOn = ":3000"
+
 func main() {
-	out := bytes.NewBuffer([]byte{})
-	PDFTemplate.Execute(out, nil)
-	pdf, err := GeneratePDFFromLatex(out.Bytes())
-	if err != nil {
-		log.Fatal(err)
-	}
-	os.Stdout.Write(pdf)
+	http.HandleFunc("/", handleGetPDFRequest)
+	log.Printf("Listening on %s", listenOn)
+	log.Fatal(http.ListenAndServe(listenOn, nil))
 }
 
 func GeneratePDFFromLatex(src []byte) ([]byte, error) {
@@ -38,4 +37,27 @@ func GeneratePDFFromLatex(src []byte) ([]byte, error) {
 	}
 	target := filepath.Join(tmpDir, "main.pdf")
 	return os.ReadFile(target)
+}
+
+func handleGetPDFRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
+	}
+
+	out := bytes.NewBuffer([]byte{})
+	PDFTemplate.Execute(out, nil)
+	pdf, err := GeneratePDFFromLatex(out.Bytes())
+
+	if err != nil {
+		log.Print(err)
+		w.Header().Add("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/pdf")
+	w.WriteHeader(http.StatusOK)
+	w.Write(pdf)
 }
